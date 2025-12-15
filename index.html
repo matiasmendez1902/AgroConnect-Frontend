@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgroConnect - Captura de Trabajadores</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f4; }
+        .container { max-width: 800px; margin: 20px auto; padding: 30px; border: 1px solid #ddd; border-radius: 12px; background-color: #ffffff; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1); }
+        h1, h2 { text-align: center; color: #38761D; margin-bottom: 20px; }
+        .section-header { margin-top: 30px; padding-bottom: 10px; border-bottom: 2px solid #38761D; }
+        
+        /* Botones y Status */
+        .controls { display: flex; gap: 10px; justify-content: center; margin-bottom: 20px; }
+        button { padding: 12px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: background-color 0.3s; }
+        button.primary { background-color: #38761D; color: white; }
+        button.primary:hover { background-color: #2F5D1A; }
+        button.secondary { background-color: #A9D18E; color: #38761D; }
+        button.secondary:hover { background-color: #8FCC6D; }
+
+        #status { margin-top: 20px; padding: 15px; border: 1px solid; border-radius: 6px; font-weight: bold; text-align: center; }
+        .success { border-color: #A9D18E; background-color: #E6F0E6; color: #38761D; }
+        .error { border-color: #E06666; background-color: #F8E0E0; color: #CC0000; }
+        .info { border-color: #B4C6E7; background-color: #E6EEF8; color: #1C4587; }
+        
+        /* Formulario */
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; color: #333; }
+        input[type="text"], input[type="date"], input[type="email"] { 
+            width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; 
+        }
+
+        /* Resultado */
+        #query-result { background-color: #eee; padding: 15px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>AgroConnect - Captura de Datos de Personal</h1>
+    
+    <div id="status" class="info">Estado de la conexión: Pendiente. ¡Recuerda usar un servidor local!</div>
+
+    <h2 class="section-header">Configuración de Base de Datos</h2>
+    <div class="controls">
+        <button onclick="testConnection()" class="primary">Probar Conexión (v. SQLite)</button>
+        <button onclick="createTable()" class="secondary">Crear Tabla Personas</button>
+    </div>
+
+    <h2 class="section-header">Registro de Nuevo Trabajador</h2>
+    <form id="personaForm">
+        <div class="form-grid">
+            <div>
+                <label for="rut">RUT:</label>
+                <input type="text" id="rut" required>
+            </div>
+            <div>
+                <label for="nombre">Nombre(s):</label>
+                <input type="text" id="nombre" required>
+            </div>
+            <div>
+                <label for="apellido">Apellido(s):</label>
+                <input type="text" id="apellido" required>
+            </div>
+            <div>
+                <label for="fecha_nacimiento">F. Nacimiento:</label>
+                <input type="date" id="fecha_nacimiento">
+            </div>
+            <div>
+                <label for="nacionalidad">Nacionalidad:</label>
+                <input type="text" id="nacionalidad">
+            </div>
+            <div>
+                <label for="cargo">Cargo:</label>
+                <input type="text" id="cargo" required>
+            </div>
+            <div>
+                <label for="fecha_ingreso">F. Ingreso (Contrato):</label>
+                <input type="date" id="fecha_ingreso" required>
+            </div>
+            <div>
+                <label for="telefono">Teléfono:</label>
+                <input type="text" id="telefono">
+            </div>
+        </div>
+        <div style="grid-column: 1 / -1;">
+            <label for="direccion">Dirección:</label>
+            <input type="text" id="direccion">
+        </div>
+        <div style="grid-column: 1 / -1; margin-top: 20px;">
+            <button type="submit" class="primary">Guardar Trabajador (INSERT)</button>
+        </div>
+    </form>
+    
+    <h2 class="section-header">Resultado de la Última Consulta:</h2>
+    <pre id="query-result">Esperando resultados...</pre>
+</div>
+
+<script>
+    // =================================================================================
+    // CONFIGURACIÓN DE CONEXIÓN
+    // ⚠️ ADVERTENCIA: Esta clave quedará visible en el navegador. Es solo para prototipo.
+    // =================================================================================
+    const API_KEY = 'D6nzFKa5tXvaiSh8xdIAIt7ZyVgFtLoMjhEcNDZaPQI';
+    const ENDPOINT_URL = 'https://cruh1wamvz.g5.sqlite.cloud:8860/agroconnect'; 
+
+    const statusDiv = document.getElementById('status');
+    const resultPre = document.getElementById('query-result');
+    const form = document.getElementById('personaForm');
+
+    // Manejar el envío del formulario
+    form.addEventListener('submit', function(e) {
+        e.preventDefault(); // Evita que la página se recargue
+        insertPersona();
+    });
+
+    /**
+     * Helper: Muestra el estado de la conexión.
+     */
+    function updateStatus(message, type = 'info') {
+        statusDiv.className = type;
+        statusDiv.textContent = 'Estado de la conexión: ' + message;
+    }
+    
+    /**
+     * 1. Prueba la Conexión (SELECT sqlite_version())
+     */
+    async function testConnection() {
+        updateStatus('Intentando conectar...', 'info');
+        resultPre.textContent = 'Procesando...';
+
+        const sqlQuery = 'SELECT sqlite_version();';
+        
+        try {
+            const response = await fetch(ENDPOINT_URL + '/exec', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + API_KEY
+                },
+                body: JSON.stringify({ stmt: sqlQuery })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(`Error en la solicitud: ${response.status} ${response.statusText} - ${data.error || 'Desconocido'}`);
+            }
+            
+            updateStatus('¡Conexión exitosa!', 'success');
+            resultPre.textContent = JSON.stringify(data, null, 2);
+
+        } catch (error) {
+            console.error('Error de conexión:', error);
+            updateStatus('Error de conexión. Revisa la consola (CORS/API Key).', 'error');
+            resultPre.textContent = error.message;
+        }
+    }
+
+
+    /**
+     * 2. Crea la Tabla Personas (CREATE TABLE)
+     */
+    async function createTable() {
+        updateStatus('Intentando crear la tabla "personas"...', 'info');
+        resultPre.textContent = 'Procesando...';
+
+        const sqlQuery = `
+            CREATE TABLE IF NOT EXISTS personas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                rut TEXT NOT NULL UNIQUE,
+                nombre TEXT NOT NULL,
+                apellido TEXT NOT NULL,
+                fecha_nacimiento TEXT,
+                nacionalidad TEXT,
+                direccion TEXT,
+                telefono TEXT,
+                email TEXT,
+                fecha_ingreso TEXT NOT NULL,
+                cargo TEXT
+            );
+        `;
+
+        try {
+            const response = await fetch(ENDPOINT_URL + '/exec', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + API_KEY
+                },
+                body: JSON.stringify({ stmt: sqlQuery })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                updateStatus('✅ Tabla "personas" creada o ya existente.', 'success');
+                resultPre.textContent = JSON.stringify(data, null, 2);
+            } else {
+                throw new Error(`Error al crear la tabla: ${data.error || 'Desconocido'}`);
+            }
+
+        } catch (error) {
+            console.error('Error al crear la tabla:', error);
+            updateStatus('❌ Error al crear la tabla. Revisa la consola.', 'error');
+            resultPre.textContent = error.message;
+        }
+    }
+
+
+    /**
+     * 3. Inserta un Nuevo Trabajador (INSERT INTO)
+     */
+    async function insertPersona() {
+        updateStatus('Intentando insertar datos...', 'info');
+        resultPre.textContent = 'Procesando...';
+
+        // Recolección de datos del formulario
+        const data = {
+            rut: document.getElementById('rut').value.trim(),
+            nombre: document.getElementById('nombre').value.trim(),
+            apellido: document.getElementById('apellido').value.trim(),
+            fecha_nacimiento: document.getElementById('fecha_nacimiento').value,
+            nacionalidad: document.getElementById('nacionalidad').value.trim(),
+            direccion: document.getElementById('direccion').value.trim(),
+            telefono: document.getElementById('telefono').value.trim(),
+            fecha_ingreso: document.getElementById('fecha_ingreso').value,
+            cargo: document.getElementById('cargo').value.trim(),
+            // email: document.getElementById('email').value.trim() // El campo email fue omitido en el formulario actual
+            email: '' // Se deja vacío por ahora
+        };
+
+        // Verificación básica de campos obligatorios
+        if (!data.rut || !data.nombre || !data.apellido || !data.fecha_ingreso || !data.cargo) {
+            updateStatus('Faltan campos obligatorios (RUT, Nombre, Apellido, F. Ingreso, Cargo).', 'error');
+            return;
+        }
+
+        // Construcción de la consulta SQL con placeholders para seguridad
+        const sqlQuery = `
+            INSERT INTO personas 
+            (rut, nombre, apellido, fecha_nacimiento, nacionalidad, direccion, telefono, email, fecha_ingreso, cargo) 
+            VALUES 
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        `;
+        
+        // Array de parámetros para los placeholders
+        const params = [
+            data.rut, data.nombre, data.apellido, data.fecha_nacimiento, 
+            data.nacionalidad, data.direccion, data.telefono, data.email, 
+            data.fecha_ingreso, data.cargo
+        ];
+
+        try {
+            // Utilizamos /exec con la estructura de parámetros de SQLite Cloud
+            const response = await fetch(ENDPOINT_URL + '/exec', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + API_KEY
+                },
+                body: JSON.stringify({ 
+                    stmt: sqlQuery, 
+                    params: params // Enviamos los parámetros de forma separada
+                })
+            });
+
+            const dataResponse = await response.json();
+
+            if (!response.ok) {
+                throw new Error(`Error de inserción: ${response.status} - ${dataResponse.error || 'Desconocido'}`);
+            }
+
+            updateStatus('✅ Trabajador insertado exitosamente.', 'success');
+            resultPre.textContent = JSON.stringify(dataResponse, null, 2);
+            form.reset(); // Limpia el formulario tras el éxito
+
+        } catch (error) {
+            console.error('Error al insertar datos:', error);
+            updateStatus('❌ Error al guardar. Puede que el RUT ya exista o haya un error en la tabla.', 'error');
+            resultPre.textContent = error.message;
+        }
+    }
+</script>
+
+</body>
+</html>
